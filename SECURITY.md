@@ -4,10 +4,9 @@
 
 tourmaline is a **single-user** application with **no authentication layer**.
 
-All database access goes through trusted server-side code holding a Supabase
-`service_role` key, which **bypasses Row Level Security**. There is no login,
-no session, and no per-user authorization — the app assumes exactly one trusted
-operator.
+All database access goes through trusted server-side code holding a Postgres
+connection string. There is no login, no session, and no per-user authorization —
+the app assumes exactly one trusted operator.
 
 > [!WARNING]
 > **Do not deploy this to a public URL as-is.** Because there is no
@@ -19,12 +18,10 @@ operator.
 
 ## Secrets
 
-- The `service_role` key is **server-only** and must never reach the browser or
-  be committed. It lives in `.env.local`, which is gitignored — keep it that way.
-- The publishable / anon key is safe to expose to the client; the service-role
-  key is not.
-- If a service-role key is ever leaked, rotate it immediately in the Supabase
-  dashboard (Project Settings → API).
+- `DATABASE_URL` is **server-only** and must never reach the browser or be
+  committed. It lives in `.env.local`, which is gitignored — keep it that way.
+- If a database URL is ever leaked, rotate the password or connection string
+  immediately with your Postgres provider.
 
 ## Reporting a vulnerability
 

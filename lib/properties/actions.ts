@@ -1,11 +1,11 @@
 "use server";
 
-import { createServerClient } from "@/lib/supabase/server";
+import { queryOne } from "@/lib/db/server";
 import { saveNote } from "@/lib/pipeline/save-note";
 import { upsertFrontmatterProperty, removeFrontmatterProperty, InvalidYamlError } from "./yaml";
 
 // Edits go to the body's YAML, then through the normal save pipeline (which re-derives
-// notes.properties) — the panel never writes `properties` directly (CLAUDE.md rule #2).
+// notes.properties); the panel never writes `properties` directly.
 type PropResult =
   | { ok: true; note: Record<string, unknown> }
   | { ok: false; error: "invalid_yaml" | "error"; message: string };
@@ -13,35 +13,34 @@ type PropResult =
 const FIX_YAML = "Fix the frontmatter YAML in the editor first.";
 
 async function applyToBody(noteId: string, transform: (body: string) => string): Promise<PropResult> {
-  const client = createServerClient();
-  const { data: note, error } = await client
-    .from("notes")
-    .select("id, title, body, folder_id, properties")
-    .eq("id", noteId)
-    .is("deleted_at", null)
-    .single();
-  if (error) throw new Error(error.message);
+  const note = await queryOne<{
+    id: string;
+    title: string;
+    body: string;
+    folder_id: string | null;
+    properties: Record<string, unknown> | null;
+  }>("select id, title, body, folder_id, properties from notes where id = $1 and deleted_at is null", [noteId]);
   if (!note) throw new Error("note not found");
 
   // Refuse to touch a note whose frontmatter didn't parse — rewriting it would destroy the
   // user's in-progress raw YAML. They fix it in the editor instead.
-  const props = note.properties as Record<string, unknown> | null;
+  const props = note.properties;
   if (props && "_raw_error" in props) return { ok: false, error: "invalid_yaml", message: FIX_YAML };
 
   let newBody: string;
   try {
-    newBody = transform(note.body as string);
+    newBody = transform(note.body);
   } catch (e) {
     if (e instanceof InvalidYamlError) return { ok: false, error: "invalid_yaml", message: FIX_YAML };
     throw e;
   }
 
   try {
-    const saved = await saveNote(client, {
+    const saved = await saveNote({
       id: noteId,
-      title: note.title as string,
+      title: note.title,
       body: newBody,
-      folderId: (note.folder_id as string | null) ?? null,
+      folderId: note.folder_id ?? null,
     });
     return { ok: true, note: saved };
   } catch (e) {

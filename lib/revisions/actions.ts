@@ -1,6 +1,6 @@
 "use server";
 
-import { createServerClient } from "@/lib/supabase/server";
+import { query, queryOne } from "@/lib/db/server";
 import { parseNote } from "@/lib/pipeline/parse";
 
 /**
@@ -17,26 +17,22 @@ export interface RevisionMeta {
 
 /** A note's revisions, newest first. No body (kept light — bodies load lazily via getRevision). */
 export async function listRevisions(noteId: string): Promise<RevisionMeta[]> {
-  const { data, error } = await createServerClient()
-    .from("note_revisions")
-    .select("id, title, created_at")
-    .eq("note_id", noteId)
-    .order("created_at", { ascending: false });
-  if (error) throw new Error(error.message);
-  return (data ?? []) as RevisionMeta[];
+  return query<RevisionMeta>(
+    "select id, title, created_at from note_revisions where note_id = $1 order by created_at desc",
+    [noteId],
+  );
 }
 
 /** One revision's full content (the read pane in the history modal). Throws on error. */
 export async function getRevision(
   revisionId: string,
 ): Promise<{ id: string; title: string; body: string; created_at: string }> {
-  const { data, error } = await createServerClient()
-    .from("note_revisions")
-    .select("id, title, body, created_at")
-    .eq("id", revisionId)
-    .single();
-  if (error) throw new Error(error.message);
-  return data as { id: string; title: string; body: string; created_at: string };
+  const revision = await queryOne<{ id: string; title: string; body: string; created_at: string }>(
+    "select id, title, body, created_at from note_revisions where id = $1",
+    [revisionId],
+  );
+  if (!revision) throw new Error("Revision not found.");
+  return revision;
 }
 
 type RestoreResult =
@@ -51,34 +47,30 @@ type RestoreResult =
  * folder_id / is_daily / daily_date are preserved.
  */
 export async function restoreRevision(noteId: string, revisionId: string): Promise<RestoreResult> {
-  const db = createServerClient();
+  const rev = await queryOne<{ id: string; title: string; body: string }>(
+    "select id, title, body from note_revisions where id = $1 and note_id = $2",
+    [revisionId, noteId],
+  );
+  if (!rev) return { ok: false, error: "not_found", message: "That revision no longer exists." };
 
-  const { data: rev, error } = await db
-    .from("note_revisions")
-    .select("id, title, body")
-    .eq("id", revisionId)
-    .eq("note_id", noteId)
-    .single();
-  if (error || !rev) return { ok: false, error: "not_found", message: "That revision no longer exists." };
+  const parsed = parseNote({ title: rev.title, body: rev.body });
 
-  const parsed = parseNote({ title: rev.title as string, body: rev.body as string });
-
-  const { data, error: rpcErr } = await db.rpc("restore_revision", {
-    p_note_id: noteId,
-    p_revision_id: revisionId,
-    p_properties: parsed.properties,
-    p_links: parsed.links.map((l) => ({
-      target_title: l.targetTitle,
-      is_embed: l.isEmbed,
-      position: l.position,
-    })),
-    p_tags: parsed.tags,
-  });
-  if (rpcErr) {
-    if ((rpcErr as { code?: string }).code === "23505") {
+  const links = parsed.links.map((l) => ({
+    target_title: l.targetTitle,
+    is_embed: l.isEmbed,
+    position: l.position,
+  }));
+  try {
+    const row = await queryOne<{ note: Record<string, unknown> }>(
+      "select restore_revision($1::uuid, $2::uuid, $3::jsonb, $4::jsonb, $5::text[]) as note",
+      [noteId, revisionId, JSON.stringify(parsed.properties), JSON.stringify(links), parsed.tags],
+    );
+    if (!row) throw new Error("restore_revision returned no row");
+    return { ok: true, note: row.note };
+  } catch (e) {
+    if ((e as { code?: string }).code === "23505") {
       return { ok: false, error: "duplicate_title", message: "A note with that title already exists." };
     }
-    return { ok: false, error: "error", message: rpcErr.message };
+    return { ok: false, error: "error", message: e instanceof Error ? e.message : String(e) };
   }
-  return { ok: true, note: data as Record<string, unknown> };
 }

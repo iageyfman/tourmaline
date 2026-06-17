@@ -1,6 +1,6 @@
 "use server";
 
-import { createServerClient } from "@/lib/supabase/server";
+import { countRows, execute, query, queryOne } from "@/lib/db/server";
 
 export interface FolderRow {
   id: string;
@@ -12,35 +12,28 @@ export interface FolderRow {
 const FOLDER_COLS = "id, name, parent_id, created_at";
 
 export async function listFolders(): Promise<FolderRow[]> {
-  const { data, error } = await createServerClient()
-    .from("folders")
-    .select(FOLDER_COLS)
-    .order("name", { ascending: true });
-  if (error) throw new Error(error.message);
-  return (data ?? []) as FolderRow[];
+  return query<FolderRow>(`select ${FOLDER_COLS} from folders order by name asc`);
 }
 
 export async function createFolder(input: { name: string; parentId?: string | null }): Promise<FolderRow> {
-  const { data, error } = await createServerClient()
-    .from("folders")
-    .insert({ name: input.name, parent_id: input.parentId ?? null })
-    .select(FOLDER_COLS)
-    .single();
-  if (error) throw new Error(error.message);
-  return data as FolderRow;
+  const folder = await queryOne<FolderRow>(
+    `insert into folders (name, parent_id) values ($1, $2) returning ${FOLDER_COLS}`,
+    [input.name, input.parentId ?? null],
+  );
+  if (!folder) throw new Error("createFolder returned no row");
+  return folder;
 }
 
 /** Find a TOP-LEVEL folder by case-insensitive name (oldest wins — names aren't unique). */
 export async function findFolderByName(name: string): Promise<FolderRow | null> {
-  const { data, error } = await createServerClient()
-    .from("folders")
-    .select(FOLDER_COLS)
-    .is("parent_id", null)
-    .ilike("name", name) // no wildcards in name -> case-insensitive exact match
-    .order("created_at", { ascending: true })
-    .limit(1);
-  if (error) throw new Error(error.message);
-  return data && data.length > 0 ? (data[0] as FolderRow) : null;
+  return queryOne<FolderRow>(
+    `select ${FOLDER_COLS}
+     from folders
+     where parent_id is null and lower(name) = lower($1)
+     order by created_at asc
+     limit 1`,
+    [name],
+  );
 }
 
 /** Find a top-level folder by name, creating it if absent. Used for the Daily folder. */
@@ -49,14 +42,12 @@ export async function getOrCreateFolderByName(name: string): Promise<FolderRow> 
 }
 
 export async function renameFolder(id: string, name: string): Promise<FolderRow> {
-  const { data, error } = await createServerClient()
-    .from("folders")
-    .update({ name })
-    .eq("id", id)
-    .select(FOLDER_COLS)
-    .single();
-  if (error) throw new Error(error.message);
-  return data as FolderRow;
+  const folder = await queryOne<FolderRow>(
+    `update folders set name = $2 where id = $1 returning ${FOLDER_COLS}`,
+    [id, name],
+  );
+  if (!folder) throw new Error("Folder not found.");
+  return folder;
 }
 
 /**
@@ -65,18 +56,14 @@ export async function renameFolder(id: string, name: string): Promise<FolderRow>
  * surprising and irreversible. Require the folder be emptied first (zero data loss).
  */
 export async function deleteFolder(id: string): Promise<void> {
-  const db = createServerClient();
   const [childFolders, childNotes] = await Promise.all([
-    db.from("folders").select("*", { count: "exact", head: true }).eq("parent_id", id),
-    db.from("notes").select("*", { count: "exact", head: true }).eq("folder_id", id).is("deleted_at", null),
+    countRows("select count(*) from folders where parent_id = $1", [id]),
+    countRows("select count(*) from notes where folder_id = $1 and deleted_at is null", [id]),
   ]);
-  if (childFolders.error) throw new Error(childFolders.error.message);
-  if (childNotes.error) throw new Error(childNotes.error.message);
-  if ((childFolders.count ?? 0) > 0 || (childNotes.count ?? 0) > 0) {
+  if (childFolders > 0 || childNotes > 0) {
     throw new Error("Folder isn't empty — move or delete its contents first.");
   }
-  const { error } = await db.from("folders").delete().eq("id", id);
-  if (error) throw new Error(error.message);
+  await execute("delete from folders where id = $1", [id]);
 }
 
 /**
@@ -85,10 +72,5 @@ export async function deleteFolder(id: string): Promise<void> {
  * so it must not re-parse links/tags or cut a revision.
  */
 export async function moveNote(noteId: string, folderId: string | null): Promise<void> {
-  const { error } = await createServerClient()
-    .from("notes")
-    .update({ folder_id: folderId })
-    .eq("id", noteId)
-    .is("deleted_at", null);
-  if (error) throw new Error(error.message);
+  await execute("update notes set folder_id = $2 where id = $1 and deleted_at is null", [noteId, folderId]);
 }

@@ -1,6 +1,6 @@
 "use server";
 
-import { createServerClient } from "@/lib/supabase/server";
+import { query, queryOne } from "@/lib/db/server";
 import { saveNote } from "@/lib/pipeline/save-note";
 import { backlinkSnippets, type Backlink } from "./snippets";
 import { findUnlinkedMentions, linkMentionsInBody, type UnlinkedMention } from "./mentions";
@@ -13,34 +13,23 @@ import type { OutgoingLinks, ResolvedOut, UnresolvedOut } from "./outgoing";
  * throws on error (like getNote), no discriminated result.
  */
 export async function getBacklinks(noteId: string): Promise<Backlink[]> {
-  const db = createServerClient();
-
-  const { data: note, error: nErr } = await db
-    .from("notes")
-    .select("title")
-    .eq("id", noteId)
-    .single();
-  if (nErr) throw new Error(nErr.message);
-  const targetTitle = (note?.title as string) ?? "";
+  const note = await queryOne<{ title: string }>("select title from notes where id = $1", [noteId]);
+  const targetTitle = note?.title ?? "";
 
   // Disambiguate the FK (links has two FKs to notes): embed the SOURCE note.
-  const { data, error } = await db
-    .from("links")
-    .select("source_id, notes!links_source_id_fkey(title, body, deleted_at)")
-    .eq("target_id", noteId)
-    .neq("source_id", noteId);
-  if (error) throw new Error(error.message);
+  const rows = await query<{ source_id: string; title: string; body: string }>(
+    `select l.source_id, n.title, n.body
+     from links l
+     join notes n on n.id = l.source_id
+     where l.target_id = $1
+       and l.source_id <> $1
+       and n.deleted_at is null`,
+    [noteId],
+  );
 
   const bySource = new Map<string, { title: string; body: string }>();
-  for (const row of (data ?? []) as Array<Record<string, unknown>>) {
-    const raw = row.notes;
-    const src = (Array.isArray(raw) ? raw[0] : raw) as
-      | { title: string; body: string; deleted_at: string | null }
-      | null
-      | undefined;
-    if (!src || src.deleted_at !== null) continue; // skip trashed sources
-    const sourceId = row.source_id as string;
-    if (!bySource.has(sourceId)) bySource.set(sourceId, { title: src.title, body: src.body });
+  for (const row of rows) {
+    if (!bySource.has(row.source_id)) bySource.set(row.source_id, { title: row.title, body: row.body });
   }
 
   const result: Backlink[] = [];
@@ -61,32 +50,33 @@ export async function getBacklinks(noteId: string): Promise<Backlink[]> {
  * is tagged `isEmbed` if ANY of its occurrences was an embed. Read-only: throws on error.
  */
 export async function getOutgoingLinks(noteId: string): Promise<OutgoingLinks> {
-  const db = createServerClient();
-
-  const { data, error } = await db
-    .from("links")
-    .select("target_id, target_title, is_embed, position, notes!links_target_id_fkey(title, deleted_at)")
-    .eq("source_id", noteId)
-    .order("position", { ascending: true });
-  if (error) throw new Error(error.message);
+  const rows = await query<{
+    target_id: string | null;
+    target_title: string;
+    is_embed: boolean;
+    title: string | null;
+    deleted_at: string | null;
+  }>(
+    `select l.target_id, l.target_title, l.is_embed, n.title, n.deleted_at
+     from links l
+     left join notes n on n.id = l.target_id
+     where l.source_id = $1
+     order by l.position asc`,
+    [noteId],
+  );
 
   const resolved = new Map<string, ResolvedOut>(); // key: targetId
   const unresolved = new Map<string, UnresolvedOut>(); // key: lower(target_title)
-  for (const row of (data ?? []) as Array<Record<string, unknown>>) {
-    const targetId = row.target_id as string | null;
-    const isEmbed = (row.is_embed as boolean) ?? false;
+  for (const row of rows) {
+    const targetId = row.target_id;
+    const isEmbed = row.is_embed ?? false;
     if (targetId) {
       if (targetId === noteId) continue; // skip self-links (consistent with backlinks)
-      const raw = row.notes;
-      const tgt = (Array.isArray(raw) ? raw[0] : raw) as
-        | { title: string; deleted_at: string | null }
-        | null
-        | undefined;
-      if (!tgt || tgt.deleted_at !== null) continue; // target trashed/missing → hide the row
+      if (!row.title || row.deleted_at !== null) continue; // target trashed/missing → hide the row
       const prev = resolved.get(targetId);
-      resolved.set(targetId, { targetId, title: tgt.title, isEmbed: (prev?.isEmbed ?? false) || isEmbed });
+      resolved.set(targetId, { targetId, title: row.title, isEmbed: (prev?.isEmbed ?? false) || isEmbed });
     } else {
-      const rawTitle = (row.target_title as string).trim();
+      const rawTitle = row.target_title.trim();
       if (!rawTitle) continue;
       const key = rawTitle.toLowerCase();
       const prev = unresolved.get(key);
@@ -108,22 +98,17 @@ export async function getOutgoingLinks(noteId: string): Promise<OutgoingLinks> {
  * in TypeScript. Computed on demand, never stored. Read-only: throws on error.
  */
 export async function getUnlinkedMentions(noteId: string): Promise<UnlinkedMention[]> {
-  const db = createServerClient();
-
-  const { data: note, error: nErr } = await db
-    .from("notes")
-    .select("title")
-    .eq("id", noteId)
-    .single();
-  if (nErr) throw new Error(nErr.message);
-  const title = ((note?.title as string) ?? "").trim();
+  const note = await queryOne<{ title: string }>("select title from notes where id = $1", [noteId]);
+  const title = (note?.title ?? "").trim();
   if (!title) return []; // a blank title would match everything — show nothing
 
-  const { data, error } = await db.rpc("notes_containing_text", { p_note_id: noteId });
-  if (error) throw new Error(error.message);
+  const rows = await query<{ id: string; title: string; body: string }>(
+    "select * from notes_containing_text($1::uuid)",
+    [noteId],
+  );
 
   const result: UnlinkedMention[] = [];
-  for (const row of (data ?? []) as Array<{ id: string; title: string; body: string }>) {
+  for (const row of rows) {
     const snippets = findUnlinkedMentions(row.body, title);
     if (snippets.length > 0) result.push({ sourceId: row.id, sourceTitle: row.title, snippets });
   }
@@ -144,23 +129,19 @@ export async function linkMention(
 ): Promise<
   { ok: true; note: Record<string, unknown> } | { ok: false; error: "error"; message: string }
 > {
-  const db = createServerClient();
-  const { data: src, error } = await db
-    .from("notes")
-    .select("id, title, body, folder_id")
-    .eq("id", sourceId)
-    .is("deleted_at", null)
-    .single();
-  if (error) return { ok: false, error: "error", message: error.message };
+  const src = await queryOne<{ id: string; title: string; body: string; folder_id: string | null }>(
+    "select id, title, body, folder_id from notes where id = $1 and deleted_at is null",
+    [sourceId],
+  );
   if (!src) return { ok: false, error: "error", message: "Source note not found." };
 
-  const newBody = linkMentionsInBody(src.body as string, targetTitle);
+  const newBody = linkMentionsInBody(src.body, targetTitle);
   try {
-    const note = await saveNote(db, {
+    const note = await saveNote({
       id: sourceId,
-      title: src.title as string,
+      title: src.title,
       body: newBody,
-      folderId: (src.folder_id as string | null) ?? null,
+      folderId: src.folder_id ?? null,
     });
     return { ok: true, note };
   } catch (e) {

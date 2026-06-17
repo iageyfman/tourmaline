@@ -1,6 +1,6 @@
 "use server";
 
-import { createServerClient } from "@/lib/supabase/server";
+import { query, queryOne } from "@/lib/db/server";
 import { createNote } from "@/lib/notes/actions";
 import { findFolderByName } from "@/lib/folders/actions";
 import { substituteVars } from "./substitute";
@@ -15,30 +15,25 @@ const DAILY_TEMPLATE_TITLE = "Daily";
 export async function listTemplates(): Promise<{ id: string; title: string }[]> {
   const folder = await findFolderByName(TEMPLATES_FOLDER);
   if (!folder) return [];
-  const { data, error } = await createServerClient()
-    .from("notes")
-    .select("id, title")
-    .eq("folder_id", folder.id)
-    .is("deleted_at", null)
-    .order("title", { ascending: true });
-  if (error) throw new Error(error.message);
-  return (data ?? []) as { id: string; title: string }[];
+  return query<{ id: string; title: string }>(
+    "select id, title from notes where folder_id = $1 and deleted_at is null order by title asc",
+    [folder.id],
+  );
 }
 
 /** Body of the daily-note template (the note titled "Daily" in Templates), or "" if none. */
 export async function getDailyTemplateBody(): Promise<string> {
   const folder = await findFolderByName(TEMPLATES_FOLDER);
   if (!folder) return "";
-  const { data, error } = await createServerClient()
-    .from("notes")
-    .select("body")
-    .eq("folder_id", folder.id)
-    .ilike("title", DAILY_TEMPLATE_TITLE)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: true })
-    .limit(1);
-  if (error) throw new Error(error.message);
-  return data && data.length > 0 ? ((data[0].body as string) ?? "") : "";
+  const row = await queryOne<{ body: string }>(
+    `select body
+     from notes
+     where folder_id = $1 and lower(title) = lower($2) and deleted_at is null
+     order by created_at asc
+     limit 1`,
+    [folder.id, DAILY_TEMPLATE_TITLE],
+  );
+  return row?.body ?? "";
 }
 
 /**
@@ -54,14 +49,12 @@ export async function createNoteFromTemplate(input: {
   date: string;
   time: string;
 }) {
-  const { data, error } = await createServerClient()
-    .from("notes")
-    .select("body")
-    .eq("id", input.templateId)
-    .is("deleted_at", null)
-    .single();
-  if (error) throw new Error(error.message);
-  const body = substituteVars((data?.body as string) ?? "", {
+  const row = await queryOne<{ body: string }>(
+    "select body from notes where id = $1 and deleted_at is null",
+    [input.templateId],
+  );
+  if (!row) throw new Error("Template not found.");
+  const body = substituteVars(row.body ?? "", {
     date: input.date,
     time: input.time,
     title: input.title,

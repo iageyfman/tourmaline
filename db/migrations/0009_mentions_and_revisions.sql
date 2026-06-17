@@ -8,7 +8,7 @@
 --   (lib/links/mentions.ts). Note parsing stays in TypeScript.
 --
 -- version history reads the existing note_revisions table (created in 0001, written +
---   pruned by rebuild_note_derived). No new table → no service_role grant. restore_revision
+--   pruned by rebuild_note_derived). No new table. restore_revision
 --   applies an old revision's title/body/properties to its note and ALWAYS cuts a new
 --   revision (never destroys history). To express "always revision" plainly (not via a
 --   debounce-suppression trick), rebuild_note_derived gains an explicit p_force_revision

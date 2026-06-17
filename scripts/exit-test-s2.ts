@@ -3,12 +3,12 @@
  * Drives the real server actions (folder CRUD, moveNote, create/update) and dumps rows.
  * The UI half (nesting/collapse/preview screenshots) is verified against the running app.
  *
- * Run: npx tsx scripts/exit-test-s2.ts   (needs SUPABASE_SERVICE_ROLE_KEY in .env.local)
+ * Run: npx tsx scripts/exit-test-s2.ts   (needs DATABASE_URL in .env.local)
  */
 import * as dotenv from "dotenv";
 dotenv.config({ path: ".env.local" });
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "./db";
 import { createFolder, renameFolder, deleteFolder, moveNote, listFolders } from "../lib/folders/actions";
 import { createNote, updateNote } from "../lib/notes/actions";
 
@@ -21,13 +21,7 @@ function mustOk(res: { ok: true; note: Record<string, unknown> } | { ok: false; 
 }
 
 async function main() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    console.error("Missing env (SUPABASE_SERVICE_ROLE_KEY in .env.local).");
-    process.exit(1);
-  }
-  const db = createClient(url, key, { auth: { persistSession: false } });
+  const db = createClient();
 
   // Repeatable cleanup (raw deletes bypass the refuse-if-non-empty guard).
   await db.from("notes").delete().in("title", TEST_NOTES);

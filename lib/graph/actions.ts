@@ -1,6 +1,6 @@
 "use server";
 
-import { createServerClient } from "@/lib/supabase/server";
+import { queryOne } from "@/lib/db/server";
 
 // Graph node/edge shapes — what the `graph_data` RPC (migration 0007) returns, one JSON object.
 export interface GraphNode {
@@ -32,11 +32,10 @@ export interface GraphData {
  */
 export async function graphData(centerId: string | null, depth = 2): Promise<GraphData> {
   const p_depth = Math.min(Math.max(depth, 1), 2);
-  const { data, error } = await createServerClient().rpc("graph_data", {
-    p_center: centerId,
+  const row = await queryOne<{ graph: Partial<GraphData> }>("select graph_data($1::uuid, $2::int) as graph", [
+    centerId,
     p_depth,
-  });
-  if (error) throw new Error(error.message);
-  const g = (data ?? {}) as Partial<GraphData>;
+  ]);
+  const g = row?.graph ?? {};
   return { nodes: g.nodes ?? [], edges: g.edges ?? [] };
 }

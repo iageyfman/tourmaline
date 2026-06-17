@@ -4,7 +4,7 @@
 -- rebuild_note_derived(…, v_is_new, /*p_force_revision*/ false) from 0009 — so every
 -- touched note gets the same link/tag rebuild + DEBOUNCED revision (we never force a
 -- revision here; each touched note's body genuinely changed, so a normal debounced
--- snapshot is right). No new table → no service_role grant; new functions keep PUBLIC
+-- snapshot is right). No new table; new functions keep PUBLIC
 -- EXECUTE. ALL TEXT PARSING stays in TypeScript (lib/pipeline/parse.ts + lib/links/
 -- rewrite.ts) — these functions only do the DB writes and are
 -- handed pre-parsed link/tag arrays and pre-rewritten bodies.

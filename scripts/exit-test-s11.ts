@@ -19,7 +19,7 @@
 import * as dotenv from "dotenv";
 dotenv.config({ path: ".env.local" });
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "./db";
 import { saveNote } from "../lib/pipeline/save-note";
 import { softDeleteNote } from "../lib/notes/actions";
 import { getBacklinks, getUnlinkedMentions, linkMention } from "../lib/links/actions";
@@ -35,13 +35,7 @@ const eq = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 const countMatches = (s: string, sub: string) => s.split(sub).length - 1;
 
 async function main() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    console.error("Missing env (SUPABASE_SERVICE_ROLE_KEY in .env.local).");
-    process.exit(1);
-  }
-  const db = createClient(url, key, { auth: { persistSession: false } });
+  const db = createClient();
 
   const clean = async () => {
     await db.from("notes").delete().like("title", "S11 %"); // cascades revisions/links/note_tags

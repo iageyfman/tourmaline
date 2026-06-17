@@ -1,10 +1,6 @@
 -- Tourmaline — saved database-style views (table / card grids over a filter).
 --
--- This is the first new table since the initial schema. Per migration 0003's note, a new table
--- gives service_role NO default CRUD (the API roles get no default grants; the ensure_rls
--- event trigger auto-enables RLS on it), so it needs an explicit grant. service_role
--- bypasses RLS by design, so no policy is added — anon/authenticated stay locked out,
--- matching every other table.
+-- This is the first new table since the initial schema.
 --
 -- A `view` is a saved filter (tag/folder/property) + chosen property columns + sort +
 -- layout. Filtering runs in SQL (notes_for_view, below); sort + column projection are
@@ -20,14 +16,12 @@ create table views (
   created_at timestamptz not null default now()
 );
 
-grant all privileges on table views to service_role;   -- MANDATORY (see migration 0003)
-
 -- Read-only filtered projection for a view. The three predicates (tag-descendant,
 -- path-subtree CTE, prop AND-match over the properties JSONB) are copied VERBATIM from
 -- search_notes (0006) — minus tsquery/rank/snippet/limit — so view filtering and the 2.5
 -- `tag:`/`path:`/`prop:` operators behave identically. It returns `properties` (for the
--- column cells) instead of a snippet. NO note-content parsing here (CLAUDE.md rule #1):
--- the filter arrives as discrete params. NO limit: a "database view" shows every match.
+-- column cells) instead of a snippet. NO note-content parsing here: the filter arrives
+-- as discrete params. NO limit: a "database view" shows every match.
 --
 --   p_tag    one tag; matches it OR any descendant (name || '/...').
 --   p_path   one folder NAME; matches notes in that folder OR any nested subfolder.

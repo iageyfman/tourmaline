@@ -25,7 +25,6 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          # Placeholders so the build can construct the Supabase client.
+          # Placeholder so the build can construct the Postgres pool.
           # No network calls happen at build time; real values are never needed in CI.
-          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
-          SUPABASE_SERVICE_ROLE_KEY: ci-build-placeholder
+          DATABASE_URL: postgresql://tourmaline:tourmaline@localhost:5432/tourmaline

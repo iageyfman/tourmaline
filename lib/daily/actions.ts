@@ -1,6 +1,6 @@
 "use server";
 
-import { createServerClient } from "@/lib/supabase/server";
+import { query, queryOne } from "@/lib/db/server";
 import { parseNote } from "@/lib/pipeline/parse";
 import { substituteVars } from "@/lib/templates/substitute";
 import { getDailyTemplateBody } from "@/lib/templates/actions";
@@ -21,21 +21,19 @@ export type DailyResult =
  * statement as the insert (no half-built window) and concurrent calls converge to one row.
  */
 export async function getOrCreateDailyNote(input: { date: string; time: string }): Promise<DailyResult> {
-  const db = createServerClient();
   const { date, time } = input;
 
   // 1. Fast path: today's daily already exists — return it untouched (no folder/template work).
-  const existing = await db
-    .from("notes")
-    .select("*")
-    .eq("is_daily", true)
-    .eq("daily_date", date)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: true })
-    .limit(1);
-  if (existing.error) throw new Error(existing.error.message);
-  if (existing.data && existing.data.length > 0) {
-    return { ok: true, note: existing.data[0] as Record<string, unknown>, folder: null };
+  const existing = await query<Record<string, unknown>>(
+    `select *
+     from notes
+     where is_daily = true and daily_date = $1 and deleted_at is null
+     order by created_at asc
+     limit 1`,
+    [date],
+  );
+  if (existing.length > 0) {
+    return { ok: true, note: existing[0], folder: null };
   }
 
   // 2. Create: ensure the Daily folder, apply the daily template, parse, then the atomic RPC.
@@ -43,22 +41,18 @@ export async function getOrCreateDailyNote(input: { date: string; time: string }
   const substituted = substituteVars(await getDailyTemplateBody(), { date, time, title: date });
   const parsed = parseNote({ title: date, body: substituted });
 
-  const { data, error } = await db.rpc("get_or_create_daily_note", {
-    p_date: date,
-    p_title: date,
-    p_body: parsed.body,
-    p_folder_id: folder.id,
-    p_properties: parsed.properties,
-    p_links: parsed.links.map((l) => ({
-      target_title: l.targetTitle,
-      is_embed: l.isEmbed,
-      position: l.position,
-    })),
-    p_tags: parsed.tags,
-  });
-  if (error) throw new Error(`get_or_create_daily_note failed: ${error.message}`);
+  const links = parsed.links.map((l) => ({
+    target_title: l.targetTitle,
+    is_embed: l.isEmbed,
+    position: l.position,
+  }));
+  const row = await queryOne<{ result: { created: boolean; collision: boolean; note: Record<string, unknown> } }>(
+    "select get_or_create_daily_note($1::date, $2, $3, $4::uuid, $5::jsonb, $6::jsonb, $7::text[]) as result",
+    [date, date, parsed.body, folder.id, JSON.stringify(parsed.properties), JSON.stringify(links), parsed.tags],
+  );
+  if (!row) throw new Error("get_or_create_daily_note returned no row");
 
-  const result = data as { created: boolean; collision: boolean; note: Record<string, unknown> };
+  const result = row.result;
   if (result.collision) {
     // A NON-daily note already owns this date as its title; never mutate it.
     return {

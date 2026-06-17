@@ -10,8 +10,7 @@
 --   5. write a debounced revision (max one per note / 5 min) + prune to last 100
 --   6. updated_at handled in step 1
 --
--- security invoker (default): the app has no auth/RLS; the publishable (anon)
--- role has table grants and RLS is disabled. Revisit when auth/RLS lands.
+-- security invoker (default): the app connects as the DATABASE_URL role.
 
 create or replace function save_note(
   p_id         uuid,     -- null = create

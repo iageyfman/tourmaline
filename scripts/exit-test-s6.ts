@@ -13,7 +13,7 @@
 import * as dotenv from "dotenv";
 dotenv.config({ path: ".env.local" });
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "./db";
 import { saveNote } from "../lib/pipeline/save-note";
 import { parseFrontmatter } from "../lib/pipeline/parse";
 import { softDeleteNote } from "../lib/notes/actions";
@@ -33,13 +33,7 @@ function check(cond: boolean, msg: string) {
 }
 
 async function main() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    console.error("Missing env (SUPABASE_SERVICE_ROLE_KEY in .env.local).");
-    process.exit(1);
-  }
-  const db = createClient(url, key, { auth: { persistSession: false } });
+  const db = createClient();
   await db.from("notes").delete().in("title", TITLES);
 
   const seed = async (title: string, body: string) => {
@@ -48,7 +42,7 @@ async function main() {
   };
   const row = async (id: string) => {
     const { data } = await db.from("notes").select("body, properties").eq("id", id).single();
-    return data as { body: string; properties: Record<string, unknown> };
+    return data as unknown as { body: string; properties: Record<string, unknown> };
   };
   const tagNamesOf = async (id: string) => {
     const { data: nt } = await db.from("note_tags").select("tag_id").eq("note_id", id);

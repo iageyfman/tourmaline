@@ -1,7 +1,6 @@
 "use server";
 
-import type { SupabaseClient } from "@supabase/supabase-js";
-import { createServerClient } from "@/lib/supabase/server";
+import { query, queryOne, type DbClient } from "@/lib/db/server";
 import { parseNote, normalizeBody, parseFrontmatter } from "@/lib/pipeline/parse";
 import type { ParsedLink } from "@/lib/pipeline/types";
 import { rewriteLinkTarget } from "./rewrite";
@@ -42,23 +41,23 @@ function linkRows(links: ParsedLink[]) {
  * is live-only). `excludeIds` removes the source/target themselves.
  */
 async function inboundLinkers(
-  db: SupabaseClient,
+  db: DbClient | undefined,
   noteId: string,
   title: string,
   fromTitle: string,
   toTitle: string,
   excludeIds: string[],
 ) {
-  const { data: linkData, error } = await db
-    .from("links")
-    .select("source_id, target_id, target_title")
-    .or(`target_id.eq.${noteId},target_id.is.null`);
-  if (error) throw new Error(error.message);
+  const linkData = await query<{ source_id: string; target_id: string | null; target_title: string }>(
+    "select source_id, target_id, target_title from links where target_id = $1 or target_id is null",
+    [noteId],
+    db,
+  );
 
   const titleLower = title.trim().toLowerCase();
   const excluded = new Set(excludeIds);
   const ids = new Set<string>();
-  for (const row of (linkData ?? []) as Array<{ source_id: string; target_id: string | null; target_title: string }>) {
+  for (const row of linkData) {
     if (excluded.has(row.source_id)) continue;
     if (row.target_id === noteId) ids.add(row.source_id);
     else if (row.target_id === null && (row.target_title ?? "").trim().toLowerCase() === titleLower)
@@ -66,15 +65,14 @@ async function inboundLinkers(
   }
   if (ids.size === 0) return [];
 
-  const { data: bodies, error: bErr } = await db
-    .from("notes")
-    .select("id, title, body")
-    .in("id", [...ids])
-    .is("deleted_at", null);
-  if (bErr) throw new Error(bErr.message);
+  const bodies = await query<{ id: string; title: string; body: string }>(
+    "select id, title, body from notes where id = any($1::uuid[]) and deleted_at is null",
+    [[...ids]],
+    db,
+  );
 
   const out: Array<{ id: string; title: string; body: string; links: ReturnType<typeof linkRows>; tags: string[] }> = [];
-  for (const n of (bodies ?? []) as Array<{ id: string; title: string; body: string }>) {
+  for (const n of bodies) {
     const newBody = rewriteLinkTarget(n.body, fromTitle, toTitle);
     if (newBody === normalizeBody(n.body)) continue; // nothing real changed (e.g. only-in-code)
     const parsed = parseNote({ title: n.title, body: newBody });
@@ -91,20 +89,17 @@ async function inboundLinkers(
  */
 export async function mergeNotes(sourceId: string, targetId: string): Promise<Result> {
   if (sourceId === targetId) return { ok: false, error: "error", message: "Cannot merge a note into itself." };
-  const db = createServerClient();
   try {
-    const { data: rows, error } = await db
-      .from("notes")
-      .select("id, title, body")
-      .in("id", [sourceId, targetId])
-      .is("deleted_at", null);
-    if (error) return { ok: false, error: "error", message: error.message };
-    const src = (rows ?? []).find((n) => n.id === sourceId) as { id: string; title: string; body: string } | undefined;
-    const tgt = (rows ?? []).find((n) => n.id === targetId) as { id: string; title: string; body: string } | undefined;
+    const rows = await query<{ id: string; title: string; body: string }>(
+      "select id, title, body from notes where id = any($1::uuid[]) and deleted_at is null",
+      [[sourceId, targetId]],
+    );
+    const src = rows.find((n) => n.id === sourceId);
+    const tgt = rows.find((n) => n.id === targetId);
     if (!src) return { ok: false, error: "error", message: "Source note not found." };
     if (!tgt) return { ok: false, error: "error", message: "Target note not found." };
 
-    const linkers = await inboundLinkers(db, sourceId, src.title, src.title, tgt.title, [sourceId, targetId]);
+    const linkers = await inboundLinkers(undefined, sourceId, src.title, src.title, tgt.title, [sourceId, targetId]);
 
     // B's merged body: B + blank line + A's content-after-frontmatter, then B's own [[A]]→[[B]].
     const normA = normalizeBody(src.body);
@@ -117,17 +112,20 @@ export async function mergeNotes(sourceId: string, targetId: string): Promise<Re
     merged = rewriteLinkTarget(merged, src.title, tgt.title);
     const parsedB = parseNote({ title: tgt.title, body: merged });
 
-    const { data, error: rErr } = await db.rpc("merge_notes", {
-      p_source_id: sourceId,
-      p_target_id: targetId,
-      p_target_title: tgt.title,
-      p_target_body: parsedB.body,
-      p_target_links: linkRows(parsedB.links),
-      p_target_tags: parsedB.tags,
-      p_sources: linkers,
-    });
-    if (rErr) return fail(rErr);
-    return { ok: true, note: data as Record<string, unknown> };
+    const row = await queryOne<{ note: Record<string, unknown> }>(
+      "select merge_notes($1::uuid, $2::uuid, $3, $4, $5::jsonb, $6::text[], $7::jsonb) as note",
+      [
+        sourceId,
+        targetId,
+        tgt.title,
+        parsedB.body,
+        JSON.stringify(linkRows(parsedB.links)),
+        parsedB.tags,
+        JSON.stringify(linkers),
+      ],
+    );
+    if (!row) throw new Error("merge_notes returned no row");
+    return { ok: true, note: row.note };
   } catch (e) {
     return fail(e);
   }
@@ -147,35 +145,34 @@ export async function extractNote(input: {
 }): Promise<Result> {
   const newTitle = input.newTitle.trim();
   if (!newTitle) return { ok: false, error: "error", message: "Title is required." };
-  const db = createServerClient();
   try {
-    const { data: src, error } = await db
-      .from("notes")
-      .select("id, title")
-      .eq("id", input.sourceId)
-      .is("deleted_at", null)
-      .single();
-    if (error) return { ok: false, error: "error", message: error.message };
+    const src = await queryOne<{ id: string; title: string }>(
+      "select id, title from notes where id = $1 and deleted_at is null",
+      [input.sourceId],
+    );
     if (!src) return { ok: false, error: "error", message: "Source note not found." };
 
     const parsedNew = parseNote({ title: newTitle, body: input.newBody });
-    const parsedSrc = parseNote({ title: src.title as string, body: input.sourceNewBody });
+    const parsedSrc = parseNote({ title: src.title, body: input.sourceNewBody });
 
-    const { data, error: rErr } = await db.rpc("extract_note", {
-      p_source_id: input.sourceId,
-      p_source_title: src.title,
-      p_source_body: parsedSrc.body,
-      p_source_links: linkRows(parsedSrc.links),
-      p_source_tags: parsedSrc.tags,
-      p_new_title: newTitle,
-      p_new_body: parsedNew.body,
-      p_new_links: linkRows(parsedNew.links),
-      p_new_tags: parsedNew.tags,
-      p_new_properties: parsedNew.properties,
-      p_new_folder_id: null,
-    });
-    if (rErr) return fail(rErr);
-    return { ok: true, note: data as Record<string, unknown> };
+    const row = await queryOne<{ note: Record<string, unknown> }>(
+      `select extract_note($1::uuid, $2, $3, $4::jsonb, $5::text[], $6, $7, $8::jsonb, $9::text[], $10::jsonb, $11::uuid) as note`,
+      [
+        input.sourceId,
+        src.title,
+        parsedSrc.body,
+        JSON.stringify(linkRows(parsedSrc.links)),
+        parsedSrc.tags,
+        newTitle,
+        parsedNew.body,
+        JSON.stringify(linkRows(parsedNew.links)),
+        parsedNew.tags,
+        JSON.stringify(parsedNew.properties),
+        null,
+      ],
+    );
+    if (!row) throw new Error("extract_note returned no row");
+    return { ok: true, note: row.note };
   } catch (e) {
     return fail(e);
   }
@@ -196,32 +193,31 @@ export async function extractNote(input: {
 export async function renameNote(id: string, oldTitle: string, newTitleRaw: string): Promise<Result> {
   const newTitle = newTitleRaw.trim();
   if (!newTitle) return { ok: false, error: "error", message: "Title is required." };
-  const db = createServerClient();
   try {
-    const { data: note, error } = await db
-      .from("notes")
-      .select("id, title, body")
-      .eq("id", id)
-      .is("deleted_at", null)
-      .single();
-    if (error) return { ok: false, error: "error", message: error.message };
+    const note = await queryOne<{ id: string; title: string; body: string }>(
+      "select id, title, body from notes where id = $1 and deleted_at is null",
+      [id],
+    );
     if (!note) return { ok: false, error: "error", message: "Note not found." };
 
-    if (newTitle === oldTitle) return { ok: true, note: note as Record<string, unknown> };
+    if (newTitle === oldTitle) return { ok: true, note };
 
-    const linkers = await inboundLinkers(db, id, oldTitle, oldTitle, newTitle, [id]);
-    const parsedSelf = parseNote({ title: newTitle, body: note.body as string });
+    const linkers = await inboundLinkers(undefined, id, oldTitle, oldTitle, newTitle, [id]);
+    const parsedSelf = parseNote({ title: newTitle, body: note.body });
 
-    const { data, error: rErr } = await db.rpc("rename_note", {
-      p_id: id,
-      p_new_title: newTitle,
-      p_self_body: parsedSelf.body,
-      p_self_links: linkRows(parsedSelf.links),
-      p_self_tags: parsedSelf.tags,
-      p_sources: linkers,
-    });
-    if (rErr) return fail(rErr);
-    return { ok: true, note: data as Record<string, unknown> };
+    const row = await queryOne<{ note: Record<string, unknown> }>(
+      "select rename_note($1::uuid, $2, $3, $4::jsonb, $5::text[], $6::jsonb) as note",
+      [
+        id,
+        newTitle,
+        parsedSelf.body,
+        JSON.stringify(linkRows(parsedSelf.links)),
+        parsedSelf.tags,
+        JSON.stringify(linkers),
+      ],
+    );
+    if (!row) throw new Error("rename_note returned no row");
+    return { ok: true, note: row.note };
   } catch (e) {
     return fail(e);
   }

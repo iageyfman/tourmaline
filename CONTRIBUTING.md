@@ -16,15 +16,15 @@ apply the database migrations.
 - `npm run typecheck` — must pass (strict TypeScript, no errors).
 - `npm run build` — must succeed.
 - If you change anything in the **save pipeline** (`lib/pipeline/`) or the link /
-  tag / rename logic, run `npm run exit-test` against your **own** Supabase
-  project. It exercises the parsing and derived-data invariants end to end.
+  tag / rename logic, run `npm run exit-test` against your **own throwaway
+  Postgres database**. It exercises the parsing and derived-data invariants end to end.
   (It talks to a real database and writes test rows — never point it at data you
   care about.)
 
 ## Ground rules
 
 - **Database changes go through migrations.** Add a new, sequentially numbered
-  file in `supabase/migrations/`. Never edit a migration that has already been
+  file in `db/migrations/`. Never edit a migration that has already been
   applied, and never make ad-hoc schema changes outside a migration.
 - **Parsing happens server-side, in one place.** Frontmatter, `[[links]]`, and
   `#tags` are parsed in the save pipeline — not in components. The `links` and

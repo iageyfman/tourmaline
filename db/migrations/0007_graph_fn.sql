@@ -9,7 +9,7 @@
 --
 -- ⚠️ Backfilled later: an earlier change applied this function out-of-band but the file was
 -- never written to the repo. The function already exists live; this only re-syncs the
--- migrations dir so `supabase db reset` can rebuild graph_data from scratch.
+-- migrations dir so a fresh database can rebuild graph_data from scratch.
 create or replace function graph_data(p_center uuid default null, p_depth int default 2)
 returns jsonb
 language sql stable as $$

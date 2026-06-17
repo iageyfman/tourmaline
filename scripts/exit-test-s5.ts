@@ -15,7 +15,7 @@
 import * as dotenv from "dotenv";
 dotenv.config({ path: ".env.local" });
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "./db";
 import { getOrCreateFolderByName } from "../lib/folders/actions";
 import { createNote, updateNote } from "../lib/notes/actions";
 import { getOrCreateDailyNote } from "../lib/daily/actions";
@@ -58,13 +58,7 @@ function check(cond: boolean, msg: string) {
 }
 
 async function main() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    console.error("Missing env (SUPABASE_SERVICE_ROLE_KEY in .env.local).");
-    process.exit(1);
-  }
-  const db = createClient(url, key, { auth: { persistSession: false } });
+  const db = createClient();
   await db.from("notes").delete().in("title", TITLES); // repeatable (folders reused idempotently)
 
   // Seed templates in the Templates folder.

@@ -1,15 +1,23 @@
 # tourmaline
 
-A single-user, cloud-native linked-notes app — wiki-links, backlinks, daily
-notes, tags, properties, a graph view, and full-text search, built on a
-Next.js + Supabase stack.
+A single-user linked-notes app — wiki-links, backlinks, daily notes, tags,
+properties, a graph view, and full-text search, built on a Next.js + Postgres
+stack.
 
 > [!WARNING]
 > **tourmaline has no authentication.** It is designed for one trusted operator and
-> all database access runs through a server-side `service_role` key that bypasses
-> Row Level Security. Run it locally, or put it behind your own access control
-> before exposing it — anyone who can reach a public deployment has full access to
-> every note. See [SECURITY.md](SECURITY.md).
+> a server-side Postgres connection. Run it locally, or put it behind your own
+> access control before exposing it — anyone who can reach a public deployment has
+> full access to every note. See [SECURITY.md](SECURITY.md).
+
+---
+
+## What It's For
+
+Tourmaline is for keeping a personal knowledge base that stays connected while
+you write. Capture notes quickly, connect ideas with wiki-links, recover context
+through backlinks/search/graph views, and safely reshape notes as your thinking
+changes.
 
 ---
 
@@ -38,6 +46,20 @@ Next.js + Supabase stack.
 - **Note composer** — merge one note into another (repointing every inbound link) or extract a selection into a new note, leaving a link behind
 - **Rename cascade** — renaming a note rewrites `[[links]]` to it everywhere, transactionally, with aliases preserved
 
+---
+
+## Screenshots
+
+![Tourmaline main workspace](docs/screenshots/workspace.svg)
+
+The main workspace combines folders, recent notes, Markdown editing, backlinks,
+outgoing links, properties, and an outline in one view.
+
+![Tourmaline graph and saved views](docs/screenshots/graph-and-views.svg)
+
+Graph view shows how notes connect; saved views turn tags, folders, and
+frontmatter properties into sortable working sets.
+
 ### Keyboard shortcuts
 
 | Shortcut | Action |
@@ -54,7 +76,7 @@ Next.js + Supabase stack.
 ## Tech stack
 
 - **Next.js 15** (App Router) + **React 19** + **TypeScript** (strict)
-- **Supabase** (Postgres) — schema, derived-data functions, and the save pipeline live in SQL migrations
+- **Postgres** via `pg` — schema, derived-data functions, and the save pipeline live in SQL migrations
 - **Tailwind CSS v4** for styling
 - **CodeMirror 6** (via `@uiw/react-codemirror`) for the editor
 - **react-force-graph-2d** for the graph
@@ -67,7 +89,7 @@ Next.js + Supabase stack.
 
 ### Prerequisites
 - Node.js 20+
-- A [Supabase](https://supabase.com) project (free tier is fine)
+- PostgreSQL 14+ (local, Docker, or a hosted Postgres provider)
 
 ### 1. Install
 ```bash
@@ -77,17 +99,17 @@ npm install
 ### 2. Configure environment
 Copy [`.env.example`](.env.example) to `.env.local` and fill in your project's values:
 ```bash
-NEXT_PUBLIC_SUPABASE_URL=https://<your-project-ref>.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=<your-service-role-key>
+DATABASE_URL=postgresql://user:password@localhost:5432/tourmaline
 ```
-The service-role key is **server-only** — it bypasses Row Level Security and must
-never reach the browser. `.env.local` is gitignored; keep it that way. (See
-[SECURITY.md](SECURITY.md) for the full security model.)
+`DATABASE_URL` is **server-only** and must never reach the browser. `.env.local`
+is gitignored; keep it that way. If your hosted database requires SSL, also set
+`DATABASE_SSL=true`. See [SECURITY.md](SECURITY.md) for the full security model.
 
 ### 3. Set up the database
-Apply the SQL files in [`supabase/migrations/`](supabase/migrations/) **in numerical order**. Either:
-- paste each file into the Supabase Studio **SQL editor**, or
-- use the Supabase CLI (`supabase link`, then `supabase db push`).
+Apply the SQL files in [`db/migrations/`](db/migrations/) **in numerical order**:
+```bash
+npm run db:migrate
+```
 
 ### 4. Run
 ```bash

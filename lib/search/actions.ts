@@ -1,6 +1,6 @@
 "use server";
 
-import { createServerClient } from "@/lib/supabase/server";
+import { query } from "@/lib/db/server";
 import { parseSearchQuery } from "./query";
 
 /** One ranked search result. Carries its own updated_at (NoteItem doesn't), and a snippet whose
@@ -24,14 +24,10 @@ export async function searchNotes(raw: string): Promise<SearchHit[]> {
   // non-empty here and is left to websearch_to_tsquery, which is total and returns no rows.)
   if (text === "" && tag === null && path === null && props.length === 0) return [];
 
-  const { data, error } = await createServerClient().rpc("search_notes", {
-    p_query: text,
-    p_tag: tag,
-    p_path: path,
-    p_props: props,
-    p_limit: 50,
-  });
-  if (error) throw new Error(error.message);
+  const data = await query<SearchHit>(
+    "select * from search_notes($1, $2, $3, $4::jsonb, $5::int)",
+    [text, tag, path, JSON.stringify(props), 50],
+  );
   // `real` arrives as a number, but coerce defensively (mirrors the bigint precedent in tags).
-  return ((data ?? []) as SearchHit[]).map((r) => ({ ...r, rank: Number(r.rank) }));
+  return data.map((r) => ({ ...r, rank: Number(r.rank) }));
 }

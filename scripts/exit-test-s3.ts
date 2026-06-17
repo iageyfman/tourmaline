@@ -10,7 +10,7 @@
 import * as dotenv from "dotenv";
 dotenv.config({ path: ".env.local" });
 
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "./db";
 import { saveNote } from "../lib/pipeline/save-note";
 import { wikiComplete } from "../lib/editor/wiki-complete";
 
@@ -32,13 +32,7 @@ const SOURCE_BODY = [
 ].join("\n");
 
 async function main() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    console.error("Missing env (SUPABASE_SERVICE_ROLE_KEY in .env.local).");
-    process.exit(1);
-  }
-  const db = createClient(url, key, { auth: { persistSession: false } });
+  const db = createClient();
 
   await db.from("notes").delete().in("title", TITLES); // repeatable
 

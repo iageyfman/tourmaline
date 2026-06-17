@@ -3,12 +3,12 @@
  * save_note RPC) against the live DB for all 5 required scenarios and prints the
  * resulting rows as evidence. Repeatable: hard-deletes its test notes first.
  *
- * Run: npx tsx scripts/exit-test.ts   (needs SUPABASE_SERVICE_ROLE_KEY in .env.local)
+ * Run: npx tsx scripts/exit-test.ts   (needs DATABASE_URL in .env.local)
  */
 import * as dotenv from "dotenv";
 dotenv.config({ path: ".env.local" });
 
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createClient, type ScriptDbClient } from "./db";
 import { saveNote } from "../lib/pipeline/save-note";
 
 const TITLES = ["Welcome", "Project Kickoff", "Code Sample", "Nonexistent Page"];
@@ -48,7 +48,7 @@ const CODE_BODY = [
   "",
 ].join("\n");
 
-async function dumpKickoffLinks(db: SupabaseClient, kickoffId: string, label: string) {
+async function dumpKickoffLinks(db: ScriptDbClient, kickoffId: string, label: string) {
   const { data, error } = await db
     .from("links")
     .select("target_title, target_id, is_embed, position")
@@ -60,15 +60,7 @@ async function dumpKickoffLinks(db: SupabaseClient, kickoffId: string, label: st
 }
 
 async function main() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) {
-    console.error(
-      "Missing env. Paste your service_role key into .env.local (SUPABASE_SERVICE_ROLE_KEY)."
-    );
-    process.exit(1);
-  }
-  const db = createClient(url, key, { auth: { persistSession: false } });
+  const db = createClient();
 
   // Repeatable: hard-delete prior test notes (test-only; app code never hard-deletes).
   const { error: delErr } = await db.from("notes").delete().in("title", TITLES);

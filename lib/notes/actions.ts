@@ -1,6 +1,6 @@
 "use server";
 
-import { createServerClient } from "@/lib/supabase/server";
+import { execute, query, queryOne } from "@/lib/db/server";
 import { saveNote } from "@/lib/pipeline/save-note";
 
 // Mutations RETURN a discriminated result rather than throwing: thrown errors in
@@ -9,6 +9,19 @@ import { saveNote } from "@/lib/pipeline/save-note";
 type SaveResult =
   | { ok: true; note: Record<string, unknown> }
   | { ok: false; error: "duplicate_title" | "error"; message: string };
+
+export interface NoteRow {
+  id: string;
+  title: string;
+  body: string;
+  folder_id: string | null;
+  properties: Record<string, unknown>;
+  is_daily: boolean;
+  daily_date: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
 
 function asSaveError(e: unknown): { ok: false; error: "duplicate_title" | "error"; message: string } {
   if ((e as { code?: string }).code === "23505") {
@@ -22,14 +35,13 @@ export async function createNote(input: {
   body?: string;
   folderId?: string | null;
 }): Promise<SaveResult> {
-  const client = createServerClient();
   const body = input.body ?? "";
   const folderId = input.folderId ?? null;
   const explicit = (input.title ?? "").trim();
 
   if (explicit) {
     try {
-      return { ok: true, note: await saveNote(client, { id: null, title: explicit, body, folderId }) };
+      return { ok: true, note: await saveNote({ id: null, title: explicit, body, folderId }) };
     } catch (e) {
       return asSaveError(e);
     }
@@ -39,7 +51,7 @@ export async function createNote(input: {
   for (let n = 1; n <= 100; n++) {
     const title = n === 1 ? "Untitled" : `Untitled ${n}`;
     try {
-      return { ok: true, note: await saveNote(client, { id: null, title, body, folderId }) };
+      return { ok: true, note: await saveNote({ id: null, title, body, folderId }) };
     } catch (e) {
       if ((e as { code?: string }).code === "23505") continue; // title taken, try next
       return asSaveError(e);
@@ -55,34 +67,25 @@ export async function updateNote(input: {
   folderId?: string | null;
 }): Promise<SaveResult> {
   try {
-    return { ok: true, note: await saveNote(createServerClient(), input) };
+    return { ok: true, note: await saveNote(input) };
   } catch (e) {
     return asSaveError(e);
   }
 }
 
-export async function getNote(id: string) {
-  const { data, error } = await createServerClient()
-    .from("notes")
-    .select("*")
-    .eq("id", id)
-    .is("deleted_at", null)
-    .single();
-  if (error) throw new Error(error.message);
-  return data;
+export async function getNote(id: string): Promise<NoteRow> {
+  const note = await queryOne<NoteRow>("select * from notes where id = $1 and deleted_at is null", [id]);
+  if (!note) throw new Error("Note not found.");
+  return note;
 }
 
 /** Full note bodies for all live notes, newest first. */
 export async function listNotes(): Promise<
   { id: string; title: string; body: string; updated_at: string }[]
 > {
-  const { data, error } = await createServerClient()
-    .from("notes")
-    .select("id, title, body, updated_at")
-    .is("deleted_at", null)
-    .order("updated_at", { ascending: false });
-  if (error) throw new Error(error.message);
-  return (data ?? []) as { id: string; title: string; body: string; updated_at: string }[];
+  return query<{ id: string; title: string; body: string; updated_at: string }>(
+    "select id, title, body, updated_at from notes where deleted_at is null order by updated_at desc",
+  );
 }
 
 /** Lightweight rows for the explorer tree: no body, ordered by title (avoids reordering
@@ -90,13 +93,9 @@ export async function listNotes(): Promise<
 export async function listNotesForTree(): Promise<
   { id: string; title: string; folder_id: string | null }[]
 > {
-  const { data, error } = await createServerClient()
-    .from("notes")
-    .select("id, title, folder_id")
-    .is("deleted_at", null)
-    .order("title", { ascending: true });
-  if (error) throw new Error(error.message);
-  return (data ?? []) as { id: string; title: string; folder_id: string | null }[];
+  return query<{ id: string; title: string; folder_id: string | null }>(
+    "select id, title, folder_id from notes where deleted_at is null order by title asc",
+  );
 }
 
 /** Bodies for a set of notes by id (for inline embeds). The client maps `![[Title]]` targets to
@@ -106,20 +105,12 @@ export async function getNoteBodies(
   ids: string[],
 ): Promise<{ id: string; title: string; body: string }[]> {
   if (ids.length === 0) return [];
-  const { data, error } = await createServerClient()
-    .from("notes")
-    .select("id, title, body")
-    .in("id", ids)
-    .is("deleted_at", null);
-  if (error) throw new Error(error.message);
-  return (data ?? []) as { id: string; title: string; body: string }[];
+  return query<{ id: string; title: string; body: string }>(
+    "select id, title, body from notes where id = any($1::uuid[]) and deleted_at is null",
+    [ids],
+  );
 }
 
 export async function softDeleteNote(id: string) {
-  const { error } = await createServerClient()
-    .from("notes")
-    .update({ deleted_at: new Date().toISOString() })
-    .eq("id", id)
-    .is("deleted_at", null);
-  if (error) throw new Error(error.message);
+  await execute("update notes set deleted_at = now() where id = $1 and deleted_at is null", [id]);
 }
