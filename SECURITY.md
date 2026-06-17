@@ -12,7 +12,7 @@ the app assumes exactly one trusted operator.
 > **Do not deploy this to a public URL as-is.** Because there is no
 > authentication, anyone who can reach the deployment has full read/write/delete
 > access to every note. Before exposing it beyond your own machine, put it behind
-> access control — a Vercel password / SSO protection, an authenticating reverse
+> access control — platform password / SSO protection, an authenticating reverse
 > proxy, a private network, or your own auth layer. For most people the safest
 > setup is to run it **locally** (`npm run dev`).
 

@@ -81,7 +81,6 @@ frontmatter properties into sortable working sets.
 - **CodeMirror 6** (via `@uiw/react-codemirror`) for the editor
 - **react-force-graph-2d** for the graph
 - **react-markdown** + **remark-gfm** for preview rendering
-- Deploys on **Vercel**
 
 ---
 

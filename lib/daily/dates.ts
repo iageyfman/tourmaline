@@ -1,6 +1,6 @@
 // Local-timezone date helpers for daily notes (SPEC 2.1). "Today" and prev/next day
 // are computed CLIENT-side and passed to the server as YYYY-MM-DD strings — the server
-// runs in UTC (Vercel) and would pick the wrong day near midnight.
+// may run in UTC and would pick the wrong day near midnight.
 //
 // NEVER use toISOString() here: it formats in UTC, which is the exact off-by-one trap
 // (e.g. 2026-06-13 00:00 local in a US timezone is still 2026-06-12 in UTC).
