@@ -1,0 +1,141 @@
+@import "tailwindcss";
+
+/* Dark-only theme (no toggle this session). color-scheme darkens native scrollbars/controls. */
+html {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-neutral-950 text-neutral-200 antialiased;
+}
+
+/* Markdown preview typography (Tailwind preflight strips defaults, so restore them here). */
+.md-preview {
+  line-height: 1.6;
+}
+.md-preview h1 {
+  font-size: 1.7rem;
+  font-weight: 700;
+  margin: 1rem 0 0.5rem;
+  border-bottom: 1px solid #262626;
+  padding-bottom: 0.3rem;
+}
+.md-preview h2 {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin: 1rem 0 0.5rem;
+}
+.md-preview h3 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: 0.8rem 0 0.4rem;
+}
+.md-preview p {
+  margin: 0.5rem 0;
+}
+.md-preview ul {
+  list-style: disc;
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+.md-preview ol {
+  list-style: decimal;
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+.md-preview li {
+  margin: 0.2rem 0;
+}
+.md-preview strong {
+  font-weight: 700;
+}
+.md-preview em {
+  font-style: italic;
+}
+.md-preview a {
+  color: #60a5fa;
+  text-decoration: underline;
+}
+/* Wiki-links: resolved = blue, unresolved = muted + dashed (create-on-click). */
+.md-preview a.wiki-link {
+  cursor: pointer;
+}
+.md-preview a.wiki-unresolved {
+  color: #9ca3af;
+  text-decoration: underline dashed;
+}
+.md-preview code {
+  background: #262626;
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.25rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}
+.md-preview pre {
+  background: #171717;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+}
+.md-preview pre code {
+  background: none;
+  padding: 0;
+}
+.md-preview blockquote {
+  border-left: 3px solid #404040;
+  padding-left: 0.75rem;
+  color: #a3a3a3;
+  margin: 0.5rem 0;
+}
+.md-preview table {
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+}
+.md-preview th,
+.md-preview td {
+  border: 1px solid #404040;
+  padding: 0.3rem 0.6rem;
+}
+
+/* Note embeds: a framed, inset render of the target note inside the preview. */
+.md-preview .embed-box {
+  border: 1px solid #2f2f2f;
+  border-left: 3px solid #3b82f6;
+  border-radius: 0.4rem;
+  background: #15171a;
+  margin: 0.75rem 0;
+  padding: 0.1rem 0.75rem 0.5rem;
+}
+.md-preview .embed-title {
+  display: inline-block;
+  margin: 0.4rem 0 0.1rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #93c5fd;
+  cursor: pointer;
+}
+.md-preview .embed-title:hover {
+  text-decoration: underline;
+}
+.md-preview .embed-box.embed-unresolved {
+  border-left-color: #6b7280;
+  background: #141414;
+}
+.md-preview .embed-empty {
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+/* Depth-1 cap placeholder: an embed inside an embed renders as this, not recursively. */
+.md-preview .embed-depth-reached {
+  font-size: 0.85rem;
+  font-style: italic;
+  color: #6b7280;
+}

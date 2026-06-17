@@ -1,0 +1,21 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+*.tsbuildinfo
+next-env.d.ts
+
+# env (keep .env.example committed)
+.env
+.env*.local
+
+# misc
+.DS_Store
+npm-debug.log*
+
+# personal / local-only — kept on disk, never published
+/.claude/
+/CLAUDE.md
+/docs/SPEC.md
