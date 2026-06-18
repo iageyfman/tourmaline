@@ -30,6 +30,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "db:migrate": "tsx scripts/migrate.ts",
     "exit-test": "tsx scripts/exit-test.ts"
   },
@@ -57,6 +58,7 @@
     "dotenv": "^16.4.0",
     "tailwindcss": "^4.3.1",
     "tsx": "^4.19.0",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "vitest": "^4.1.9"
   }
 }

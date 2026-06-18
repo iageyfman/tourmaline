@@ -38,8 +38,18 @@ jobs:
       - name: Apply database migrations
         run: npm run db:migrate
 
+      - name: Run unit tests
+        run: npm test
+
       - name: Run database exit test
         run: npm run exit-test
+
+      - name: Run feature scenario exit tests
+        run: |
+          for s in 2 3 4 5 6 7 8 9 10 11 12; do
+            echo "--- exit-test-s${s}.ts ---"
+            npx tsx scripts/exit-test-s${s}.ts
+          done
 
       - name: Type-check
         run: npm run typecheck
