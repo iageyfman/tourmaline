@@ -105,10 +105,11 @@ is gitignored; keep it that way. If your hosted database requires SSL, also set
 `DATABASE_SSL=true`. See [SECURITY.md](SECURITY.md) for the full security model.
 
 ### 3. Set up the database
-Apply the SQL files in [`db/migrations/`](db/migrations/) **in numerical order**:
+Apply pending SQL migrations from [`db/migrations/`](db/migrations/):
 ```bash
 npm run db:migrate
 ```
+The migrator records applied files and checksums in `_tourmaline_migrations`.
 
 ### 4. Run
 ```bash

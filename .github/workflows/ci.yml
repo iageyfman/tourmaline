@@ -9,6 +9,22 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: tourmaline
+          POSTGRES_USER: tourmaline
+          POSTGRES_PASSWORD: tourmaline
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tourmaline -d tourmaline"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://tourmaline:tourmaline@localhost:5432/tourmaline
     steps:
       - uses: actions/checkout@v4
 
@@ -19,12 +35,14 @@ jobs:
 
       - run: npm ci
 
+      - name: Apply database migrations
+        run: npm run db:migrate
+
+      - name: Run database exit test
+        run: npm run exit-test
+
       - name: Type-check
         run: npm run typecheck
 
       - name: Build
         run: npm run build
-        env:
-          # Placeholder so the build can construct the Postgres pool.
-          # No network calls happen at build time; real values are never needed in CI.
-          DATABASE_URL: postgresql://tourmaline:tourmaline@localhost:5432/tourmaline

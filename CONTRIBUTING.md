@@ -24,8 +24,8 @@ apply the database migrations.
 ## Ground rules
 
 - **Database changes go through migrations.** Add a new, sequentially numbered
-  file in `db/migrations/`. Never edit a migration that has already been
-  applied, and never make ad-hoc schema changes outside a migration.
+  file in `db/migrations/`. Never edit a migration after it has shipped; the
+  migrator records checksums and will reject changed migrations.
 - **Parsing happens server-side, in one place.** Frontmatter, `[[links]]`, and
   `#tags` are parsed in the save pipeline — not in components. The `links` and
   `tags` tables are derived data, rebuilt on save; don't write to them directly
